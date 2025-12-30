@@ -1,0 +1,54 @@
+/* ===== Dashboard 共通スタイル ===== */
+
+/* カード内の1行 */
+.dashboard-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid #E5EAF1;
+    background-color: #FFFFFF;
+}
+
+.dashboard-row:hover {
+    background-color: #F5F9FF;
+}
+
+.dashboard-row-supplement {
+    font-size: 11px;
+    color: #6B7280;
+}
+
+/* タイトル（マニュアル名 / 連絡タイトル / TODO名） */
+.dashboard-item-title {
+    font-size: 13px;
+    color: #111827;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* サブ情報（カテゴリ・重要度・タグなど） */
+.dashboard-item-sub {
+    font-size: 12px;
+    color: #6B7280;
+    margin-top: 2px;
+}
+
+/* 右側メタ情報（日付・期限など） */
+.dashboard-item-meta {
+    font-size: 12px;
+    color: #6B7280;
+    white-space: nowrap;
+}
+
+/* ===== ダッシュボード行 hover 強調 ===== */
+.dashboard-row {
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-row:hover {
+    background-color: #F5F9FF;
+    box-shadow: 0 2px 6px rgba(31, 95, 191, 0.08);
+}
