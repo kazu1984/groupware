@@ -62,6 +62,7 @@ function App() {
 
 
   const [todos, setTodos] = useState([]);
+  const [boardPosts, setBoardPosts] = useState([]);
 
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const [selectedBoardPost, setSelectedBoardPost] = useState(null);
@@ -73,25 +74,8 @@ function App() {
 
 
 
-  const [boardPosts, setBoardPosts] = useState([
-    {
-      id: generateId(),
-      title: "今週の生産スケジュールについて",
-      category: "お知らせ",
-      content:
-        "今週の生産スケジュールを共有します。詳細は添付のExcelを参照してください。質問があればグループチャットまで。",
-      pinned: true,
-      createdAt: formatNow(),
-    },
-    {
-      id: generateId(),
-      title: "週次清掃当番の確認",
-      category: "清掃",
-      content: "今週の清掃当番表を更新しました。担当者は休憩室の掲示をご確認ください。",
-      pinned: false,
-      createdAt: formatNow(),
-    },
-  ]);
+
+
 
   const [manuals, setManuals] = useState([
     {
@@ -126,6 +110,20 @@ function App() {
     };
 
     fetchTodos();
+  }, []);
+
+  useEffect(() => {
+    const fetchBoardPosts = async () => {
+      try {
+        const res = await fetch("http://localhost:3001/api/board-posts");
+        const data = await res.json();
+        setBoardPosts(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error("連絡ボードの取得に失敗しました", e);
+      }
+    };
+
+    fetchBoardPosts();
   }, []);
 
   // ---- TODO handlers ----
@@ -194,46 +192,111 @@ function App() {
   };
 
   // ---- Board handlers ----
-  const handleAddPost = (newPost) => {
-    setBoardPosts((prev) => [
-      {
-        ...newPost,
-        id: generateId(),
-        createdAt: formatNow(),
-      },
-      ...prev,
-    ]);
+  const handleAddPost = async (newPost) => {
+    try {
+      const res = await fetch("http://localhost:3001/api/board-posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newPost.title,
+          category: newPost.category,
+          content: newPost.content,
+          pinned: !!newPost.pinned,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("連絡の追加に失敗しました");
+        return;
+      }
+
+      const created = await res.json();
+      setBoardPosts((prev) => [created, ...prev]);
+    } catch (e) {
+      console.error("連絡の追加に失敗しました", e);
+    }
   };
 
-  const handleTogglePin = (id) => {
-    setBoardPosts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-            ...p,
-            pinned: !p.pinned,
-          }
-          : p
-      )
-    );
+
+  const handleTogglePin = async (id) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/board-posts/${id}/toggle-pin`, {
+        method: "PATCH",
+      });
+
+      if (!res.ok) {
+        console.error("ピン留め更新に失敗しました");
+        return;
+      }
+
+      const result = await res.json(); // { id, pinned }
+
+      // pinned を反映して並び替え（ピン留め優先→新しい順）
+      setBoardPosts((prev) => {
+        const next = prev.map((p) => (p.id === id ? { ...p, pinned: result.pinned } : p));
+        next.sort((a, b) => {
+          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+          const ta = Date.parse(String(a.createdAt || "").replace(/\//g, "-")) || 0;
+          const tb = Date.parse(String(b.createdAt || "").replace(/\//g, "-")) || 0;
+          return tb - ta;
+        });
+        return next;
+      });
+    } catch (e) {
+      console.error("ピン留め更新に失敗しました", e);
+    }
   };
 
-  const handleUpdatePost = (id, updatedFields) => {
-    setBoardPosts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-            ...p,
-            ...updatedFields,
-          }
-          : p
-      )
-    );
+
+  const handleUpdatePost = async (id, updatedFields) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/board-posts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: updatedFields.title,
+          category: updatedFields.category,
+          content: updatedFields.content,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("連絡の更新に失敗しました");
+        return;
+      }
+
+      const updated = await res.json();
+
+      setBoardPosts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, ...updated } : p))
+      );
+
+      // もし詳細モーダルで開いている投稿を編集していた場合、そっちも最新に
+      setSelectedBoardPost((cur) => (cur && cur.id === id ? { ...cur, ...updated } : cur));
+    } catch (e) {
+      console.error("連絡の更新に失敗しました", e);
+    }
   };
 
-  const handleDeletePost = (id) => {
-    setBoardPosts((prev) => prev.filter((p) => p.id !== id));
+
+  const handleDeletePost = async (id) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/board-posts/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        console.error("連絡の削除に失敗しました");
+        return;
+      }
+
+      setBoardPosts((prev) => prev.filter((p) => p.id !== id));
+      setSelectedBoardPost((cur) => (cur && cur.id === id ? null : cur));
+    } catch (e) {
+      console.error("連絡の削除に失敗しました", e);
+    }
   };
+
 
   // ---- Manual handlers ----
   const handleAddManual = (manualInput) => {
