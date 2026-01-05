@@ -63,6 +63,7 @@ function App() {
 
   const [todos, setTodos] = useState([]);
   const [boardPosts, setBoardPosts] = useState([]);
+  const [manuals, setManuals] = useState([]);
 
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const [selectedBoardPost, setSelectedBoardPost] = useState(null);
@@ -70,33 +71,6 @@ function App() {
   const [openedFromDashboard, setOpenedFromDashboard] = useState(false);
   const [manualReturnMenu, setManualReturnMenu] = useState("home");
 
-
-
-
-
-
-
-
-  const [manuals, setManuals] = useState([
-    {
-      id: generateId(),
-      title: "ライン停止時の初動対応",
-      categoryPath: ["製造ライン", "トラブル対応"],
-      tags: ["停止", "トラブル", "安全"],
-      content:
-        "1. 非常停止ボタンが押されていないか確認\n2. アラームパネルのエラーコードを確認\n3. 作業者の安全確保を最優先とし、危険箇所には近づかない\n4. 原因が不明な場合はリーダーに報告し、指示をあおぐ\n5. 復旧後は必ず試運転を行う。",
-      createdAt: formatNow(),
-    },
-    {
-      id: generateId(),
-      title: "日次清掃マニュアル（製造室）",
-      categoryPath: ["共通マニュアル", "清掃"],
-      tags: ["日次", "清掃"],
-      content:
-        "1. 機械の電源がOFFであることを確認\n2. 床の異物・粉塵を除去\n3. アルコールを用いて接触部を重点的に拭き上げ\n4. 清掃チェックリストに実施者・日時を記入する。",
-      createdAt: formatNow(),
-    },
-  ]);
 
   useEffect(() => {
     const fetchTodos = async () => {
@@ -125,6 +99,23 @@ function App() {
 
     fetchBoardPosts();
   }, []);
+
+  useEffect(() => {
+    const fetchManuals = async () => {
+      try {
+        const res = await fetch("http://localhost:3001/api/manuals");
+        const data = await res.json();
+        setManuals(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error("マニュアルの取得に失敗しました", e);
+      }
+    };
+
+    fetchManuals();
+  }, []);
+
+
+
 
   // ---- TODO handlers ----
   const handleAddTodo = async (newTodo) => {
@@ -299,34 +290,76 @@ function App() {
 
 
   // ---- Manual handlers ----
-  const handleAddManual = (manualInput) => {
-    setManuals((prev) => [
-      ...prev,
-      {
-        ...manualInput,
-        id: generateId(),
-        createdAt: formatNow(),
-      },
-    ]);
+  const handleAddManual = async (manualInput) => {
+    try {
+      const res = await fetch("http://localhost:3001/api/manuals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: manualInput.title,
+          content: manualInput.content,
+          categoryPath: manualInput.categoryPath || [],
+          tags: manualInput.tags || [],
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("マニュアル追加に失敗しました");
+        return;
+      }
+
+      const created = await res.json();
+      setManuals((prev) => [created, ...prev]);
+    } catch (e) {
+      console.error("マニュアル追加に失敗しました", e);
+    }
   };
 
-  const handleUpdateManual = (id, updatedFields) => {
-    setManuals((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? {
-            ...m,
-            ...updatedFields,
-            createdAt: formatNow(),
-          }
-          : m
-      )
-    );
+
+  const handleUpdateManual = async (id, updatedFields) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/manuals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: updatedFields.title,
+          content: updatedFields.content,
+          categoryPath: updatedFields.categoryPath,
+          tags: updatedFields.tags,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("マニュアル更新に失敗しました");
+        return;
+      }
+
+      const updated = await res.json();
+
+      setManuals((prev) => prev.map((m) => (m.id === id ? { ...m, ...updated } : m)));
+    } catch (e) {
+      console.error("マニュアル更新に失敗しました", e);
+    }
   };
 
-  const handleDeleteManual = (id) => {
-    setManuals((prev) => prev.filter((m) => m.id !== id));
+
+  const handleDeleteManual = async (id) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/manuals/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        console.error("マニュアル削除に失敗しました");
+        return;
+      }
+
+      setManuals((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      console.error("マニュアル削除に失敗しました", e);
+    }
   };
+
 
   // ===== 全体検索結果（表示用）=====
   const searchResults = useMemo(() => {

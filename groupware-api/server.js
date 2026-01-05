@@ -31,6 +31,33 @@ db.exec(`
   );
 `);
 
+// マニュアル（manuals）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS manuals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category_path TEXT NOT NULL DEFAULT '[]',  -- JSON文字列
+    tags TEXT NOT NULL DEFAULT '[]',           -- JSON文字列
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+const safeJsonParseArray = (value) => {
+    try {
+        const v = JSON.parse(value);
+        return Array.isArray(v) ? v : [];
+    } catch {
+        return [];
+    }
+};
+
+const toJsonArrayString = (arr) => {
+    if (!Array.isArray(arr)) return "[]";
+    return JSON.stringify(arr);
+};
+
 
 const app = express();
 const PORT = 3001;
@@ -251,6 +278,163 @@ app.delete("/api/board-posts/:id", (req, res) => {
 
     res.json({ ok: true });
 });
+
+// ---- Manuals API ----
+
+// 一覧取得（新しい順）
+app.get("/api/manuals", (req, res) => {
+    const rows = db
+        .prepare(`
+      SELECT id, title, content, category_path, tags, created_at, updated_at
+      FROM manuals
+      ORDER BY datetime(updated_at) DESC, id DESC
+    `)
+        .all();
+
+    const manuals = rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        categoryPath: safeJsonParseArray(r.category_path),
+        tags: safeJsonParseArray(r.tags),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+    }));
+
+    res.json(manuals);
+});
+
+// 1件取得（詳細モーダルなど用）
+app.get("/api/manuals/:id", (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "invalid id" });
+
+    const r = db
+        .prepare(`
+      SELECT id, title, content, category_path, tags, created_at, updated_at
+      FROM manuals
+      WHERE id = ?
+    `)
+        .get(id);
+
+    if (!r) return res.status(404).json({ error: "not found" });
+
+    res.json({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        categoryPath: safeJsonParseArray(r.category_path),
+        tags: safeJsonParseArray(r.tags),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+    });
+});
+
+// 追加
+app.post("/api/manuals", (req, res) => {
+    const { title, content, categoryPath, tags } = req.body || {};
+
+    if (!title || !String(title).trim()) {
+        return res.status(400).json({ error: "title is required" });
+    }
+    if (!content || !String(content).trim()) {
+        return res.status(400).json({ error: "content is required" });
+    }
+
+    const now = new Date().toISOString();
+
+    const stmt = db.prepare(`
+    INSERT INTO manuals (title, content, category_path, tags, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+    const info = stmt.run(
+        String(title).trim(),
+        String(content).trim(),
+        toJsonArrayString(categoryPath),
+        toJsonArrayString(tags),
+        now,
+        now
+    );
+
+    res.status(201).json({
+        id: info.lastInsertRowid,
+        title: String(title).trim(),
+        content: String(content).trim(),
+        categoryPath: Array.isArray(categoryPath) ? categoryPath : [],
+        tags: Array.isArray(tags) ? tags : [],
+        createdAt: now,
+        updatedAt: now,
+    });
+});
+
+// 更新（編集保存）
+app.patch("/api/manuals/:id", (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "invalid id" });
+
+    const row = db.prepare("SELECT id FROM manuals WHERE id = ?").get(id);
+    if (!row) return res.status(404).json({ error: "not found" });
+
+    const { title, content, categoryPath, tags } = req.body || {};
+    const now = new Date().toISOString();
+
+    // title/content は空なら更新しない設計に（必要なら必須に変えてOK）
+    if (title !== undefined && !String(title).trim()) {
+        return res.status(400).json({ error: "title cannot be empty" });
+    }
+    if (content !== undefined && !String(content).trim()) {
+        return res.status(400).json({ error: "content cannot be empty" });
+    }
+
+    db.prepare(`
+    UPDATE manuals
+    SET
+      title = COALESCE(?, title),
+      content = COALESCE(?, content),
+      category_path = COALESCE(?, category_path),
+      tags = COALESCE(?, tags),
+      updated_at = ?
+    WHERE id = ?
+  `).run(
+        title !== undefined ? String(title).trim() : null,
+        content !== undefined ? String(content).trim() : null,
+        categoryPath !== undefined ? toJsonArrayString(categoryPath) : null,
+        tags !== undefined ? toJsonArrayString(tags) : null,
+        now,
+        id
+    );
+
+    const r = db
+        .prepare(`
+      SELECT id, title, content, category_path, tags, created_at, updated_at
+      FROM manuals
+      WHERE id = ?
+    `)
+        .get(id);
+
+    res.json({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        categoryPath: safeJsonParseArray(r.category_path),
+        tags: safeJsonParseArray(r.tags),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+    });
+});
+
+// 削除
+app.delete("/api/manuals/:id", (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "invalid id" });
+
+    const info = db.prepare("DELETE FROM manuals WHERE id = ?").run(id);
+    if (info.changes === 0) return res.status(404).json({ error: "not found" });
+
+    res.json({ ok: true });
+});
+
 
 
 // サーバー起動
