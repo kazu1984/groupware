@@ -1,5 +1,7 @@
 // src/App.jsx
 import { useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost, apiPatch, apiDelete } from "./api/client";
+
 
 import TodoSection from "./components/TodoSection";
 import BoardSection from "./components/BoardSection";
@@ -101,17 +103,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const fetchManuals = async () => {
-      try {
-        const res = await fetch("http://localhost:3001/api/manuals");
-        const data = await res.json();
-        setManuals(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error("マニュアルの取得に失敗しました", e);
-      }
-    };
-
-    fetchManuals();
+    apiGet("/manuals")
+      .then((data) => setManuals(Array.isArray(data) ? data : []))
+      .catch((e) => console.error("マニュアルの取得に失敗しました", e));
   }, []);
 
 
@@ -292,73 +286,41 @@ function App() {
   // ---- Manual handlers ----
   const handleAddManual = async (manualInput) => {
     try {
-      const res = await fetch("http://localhost:3001/api/manuals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: manualInput.title,
-          content: manualInput.content,
-          categoryPath: manualInput.categoryPath || [],
-          tags: manualInput.tags || [],
-        }),
+      const created = await apiPost("/manuals", {
+        title: manualInput.title,
+        content: manualInput.content,
+        categoryPath: manualInput.categoryPath || [],
+        tags: manualInput.tags || [],
       });
-
-      if (!res.ok) {
-        console.error("マニュアル追加に失敗しました");
-        return;
-      }
-
-      const created = await res.json();
       setManuals((prev) => [created, ...prev]);
     } catch (e) {
       console.error("マニュアル追加に失敗しました", e);
     }
   };
 
-
   const handleUpdateManual = async (id, updatedFields) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/manuals/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: updatedFields.title,
-          content: updatedFields.content,
-          categoryPath: updatedFields.categoryPath,
-          tags: updatedFields.tags,
-        }),
+      const updated = await apiPatch(`/manuals/${id}`, {
+        title: updatedFields.title,
+        content: updatedFields.content,
+        categoryPath: updatedFields.categoryPath,
+        tags: updatedFields.tags,
       });
-
-      if (!res.ok) {
-        console.error("マニュアル更新に失敗しました");
-        return;
-      }
-
-      const updated = await res.json();
-
       setManuals((prev) => prev.map((m) => (m.id === id ? { ...m, ...updated } : m)));
     } catch (e) {
       console.error("マニュアル更新に失敗しました", e);
     }
   };
 
-
   const handleDeleteManual = async (id) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/manuals/${id}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        console.error("マニュアル削除に失敗しました");
-        return;
-      }
-
+      await apiDelete(`/manuals/${id}`);
       setManuals((prev) => prev.filter((m) => m.id !== id));
     } catch (e) {
       console.error("マニュアル削除に失敗しました", e);
     }
   };
+
 
 
   // ===== 全体検索結果（表示用）=====
