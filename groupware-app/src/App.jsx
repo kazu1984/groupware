@@ -1,41 +1,16 @@
 // src/App.jsx
 import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost, apiPatch, apiDelete } from "./api/client";
 
-
-import TodoSection from "./components/TodoSection";
-import BoardSection from "./components/BoardSection";
 import ManualSection from "./components/ManualSection";
-import DashboardSection from "./components/dashboard/DashboardSection";
-import { buildAiKnowledge } from "./aiData";
-import BoardPostDetailModal from "./components/board/BoardPostDetailModal";
 import AiChatSection from "./components/chat/AiChatSection";
 import GlobalSearchResults from "./components/search/GlobalSearchResults";
-
-
-
+import { buildAiKnowledge } from "./aiData";
+import { apiGet, apiPost, apiPatch, apiDelete } from "./api/client";
 
 const menuItems = [
-  { id: "home", label: "ダッシュボード" },
-  { id: "todo", label: "TODOリスト" },
-  { id: "board", label: "連絡ボード" },
   { id: "manual", label: "マニュアル" },
   { id: "chat", label: "AIチャット" },
 ];
-
-const generateId = () =>
-  String(Date.now()) + Math.random().toString(36).slice(2, 8);
-
-const formatNow = () => {
-  const now = new Date();
-  return now.toLocaleString("ja-JP", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
 
 // ===== 全体検索 helpers =====
 const normalize = (s) => (s ?? "").toString().toLowerCase().trim();
@@ -48,242 +23,37 @@ const includesAllTerms = (text, query) => {
   return terms.every((t) => hay.includes(t));
 };
 
-
 function App() {
+  const [activeMenu, setActiveMenu] = useState("manual");
 
-  const [activeMenu, setActiveMenu] = useState("home");
+  // 全体検索
   const [globalQuery, setGlobalQuery] = useState("");
   const [isGlobalSearching, setIsGlobalSearching] = useState(false);
 
-  // ★ AIチャットの履歴保管（消えないようにする）
+  // AIチャットの履歴保管（消えないようにする）
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState("");
 
-
-
-
-
-  const [todos, setTodos] = useState([]);
-  const [boardPosts, setBoardPosts] = useState([]);
+  // マニュアル（DB）
   const [manuals, setManuals] = useState([]);
 
-  const [showCompletedTodos, setShowCompletedTodos] = useState(false);
-  const [selectedBoardPost, setSelectedBoardPost] = useState(null);
+  // マニュアル詳細モーダル用（外部から開く）
   const [openManualId, setOpenManualId] = useState(null);
-  const [openedFromDashboard, setOpenedFromDashboard] = useState(false);
-  const [manualReturnMenu, setManualReturnMenu] = useState("home");
+  const [manualReturnMenu, setManualReturnMenu] = useState("chat");
 
-
+  // ===== 初回ロード：manuals =====
   useEffect(() => {
-    const fetchTodos = async () => {
+    (async () => {
       try {
-        const res = await fetch("http://localhost:3001/api/todos");
-        const data = await res.json();
-        setTodos(data);
+        const data = await apiGet("/manuals");
+        setManuals(Array.isArray(data) ? data : []);
       } catch (e) {
-        console.error("TODOの取得に失敗しました", e);
+        console.error("マニュアルの取得に失敗しました", e);
       }
-    };
-
-    fetchTodos();
+    })();
   }, []);
 
-  useEffect(() => {
-    const fetchBoardPosts = async () => {
-      try {
-        const res = await fetch("http://localhost:3001/api/board-posts");
-        const data = await res.json();
-        setBoardPosts(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error("連絡ボードの取得に失敗しました", e);
-      }
-    };
-
-    fetchBoardPosts();
-  }, []);
-
-  useEffect(() => {
-    apiGet("/manuals")
-      .then((data) => setManuals(Array.isArray(data) ? data : []))
-      .catch((e) => console.error("マニュアルの取得に失敗しました", e));
-  }, []);
-
-
-
-
-  // ---- TODO handlers ----
-  const handleAddTodo = async (newTodo) => {
-    try {
-      const res = await fetch("http://localhost:3001/api/todos", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: newTodo.title,
-          deadline: newTodo.deadline,
-          priority: newTodo.priority,
-        }),
-      });
-
-      if (!res.ok) {
-        console.error("TODOの追加に失敗しました");
-        return;
-      }
-
-      const created = await res.json();
-
-      // DBから返ってきたデータをそのままstateに追加
-      setTodos((prev) => [created, ...prev]);
-    } catch (e) {
-      console.error("TODOの追加に失敗しました", e);
-    }
-  };
-
-
-
-
-  const handleToggleTodo = async (id) => {
-    try {
-      const res = await fetch(`http://localhost:3001/api/todos/${id}/toggle`, {
-        method: "PATCH",
-      });
-
-      if (!res.ok) {
-        console.error("TODOの更新に失敗しました");
-        return;
-      }
-
-      const result = await res.json(); // { id, completed }
-
-      setTodos((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? {
-              ...t,
-              completed: result.completed,
-            }
-            : t
-        )
-      );
-    } catch (e) {
-      console.error("TODOの更新に失敗しました", e);
-    }
-  };
-
-
-  const handleToggleShowCompleted = () => {
-    setShowCompletedTodos((prev) => !prev);
-  };
-
-  // ---- Board handlers ----
-  const handleAddPost = async (newPost) => {
-    try {
-      const res = await fetch("http://localhost:3001/api/board-posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newPost.title,
-          category: newPost.category,
-          content: newPost.content,
-          pinned: !!newPost.pinned,
-        }),
-      });
-
-      if (!res.ok) {
-        console.error("連絡の追加に失敗しました");
-        return;
-      }
-
-      const created = await res.json();
-      setBoardPosts((prev) => [created, ...prev]);
-    } catch (e) {
-      console.error("連絡の追加に失敗しました", e);
-    }
-  };
-
-
-  const handleTogglePin = async (id) => {
-    try {
-      const res = await fetch(`http://localhost:3001/api/board-posts/${id}/toggle-pin`, {
-        method: "PATCH",
-      });
-
-      if (!res.ok) {
-        console.error("ピン留め更新に失敗しました");
-        return;
-      }
-
-      const result = await res.json(); // { id, pinned }
-
-      // pinned を反映して並び替え（ピン留め優先→新しい順）
-      setBoardPosts((prev) => {
-        const next = prev.map((p) => (p.id === id ? { ...p, pinned: result.pinned } : p));
-        next.sort((a, b) => {
-          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-          const ta = Date.parse(String(a.createdAt || "").replace(/\//g, "-")) || 0;
-          const tb = Date.parse(String(b.createdAt || "").replace(/\//g, "-")) || 0;
-          return tb - ta;
-        });
-        return next;
-      });
-    } catch (e) {
-      console.error("ピン留め更新に失敗しました", e);
-    }
-  };
-
-
-  const handleUpdatePost = async (id, updatedFields) => {
-    try {
-      const res = await fetch(`http://localhost:3001/api/board-posts/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: updatedFields.title,
-          category: updatedFields.category,
-          content: updatedFields.content,
-        }),
-      });
-
-      if (!res.ok) {
-        console.error("連絡の更新に失敗しました");
-        return;
-      }
-
-      const updated = await res.json();
-
-      setBoardPosts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, ...updated } : p))
-      );
-
-      // もし詳細モーダルで開いている投稿を編集していた場合、そっちも最新に
-      setSelectedBoardPost((cur) => (cur && cur.id === id ? { ...cur, ...updated } : cur));
-    } catch (e) {
-      console.error("連絡の更新に失敗しました", e);
-    }
-  };
-
-
-  const handleDeletePost = async (id) => {
-    try {
-      const res = await fetch(`http://localhost:3001/api/board-posts/${id}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        console.error("連絡の削除に失敗しました");
-        return;
-      }
-
-      setBoardPosts((prev) => prev.filter((p) => p.id !== id));
-      setSelectedBoardPost((cur) => (cur && cur.id === id ? null : cur));
-    } catch (e) {
-      console.error("連絡の削除に失敗しました", e);
-    }
-  };
-
-
-  // ---- Manual handlers ----
+  // ===== Manual handlers（DB）=====
   const handleAddManual = async (manualInput) => {
     try {
       const created = await apiPost("/manuals", {
@@ -306,7 +76,10 @@ function App() {
         categoryPath: updatedFields.categoryPath,
         tags: updatedFields.tags,
       });
-      setManuals((prev) => prev.map((m) => (m.id === id ? { ...m, ...updated } : m)));
+
+      setManuals((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, ...updated } : m))
+      );
     } catch (e) {
       console.error("マニュアル更新に失敗しました", e);
     }
@@ -321,8 +94,6 @@ function App() {
     }
   };
 
-
-
   // ===== 全体検索結果（表示用）=====
   const searchResults = useMemo(() => {
     const q = globalQuery.trim();
@@ -330,32 +101,6 @@ function App() {
 
     const results = [];
 
-    // TODO
-    todos.forEach((t) => {
-      if (includesAllTerms(t.title, q)) {
-        results.push({
-          type: "todo",
-          id: t.id,
-          title: t.title,
-          meta: t.deadline ? `期限：${t.deadline}` : "",
-        });
-      }
-    });
-
-    // 連絡
-    boardPosts.forEach((p) => {
-      const text = [p.title, p.content].join(" ");
-      if (includesAllTerms(text, q)) {
-        results.push({
-          type: "board",
-          id: p.id,
-          title: p.title,
-          meta: p.category ? `カテゴリ：${p.category}` : "",
-        });
-      }
-    });
-
-    // マニュアル
     manuals.forEach((m) => {
       const text = [
         m.title,
@@ -363,6 +108,7 @@ function App() {
         (m.tags || []).join(" "),
         Array.isArray(m.categoryPath) ? m.categoryPath.join(" ") : "",
       ].join(" ");
+
       if (includesAllTerms(text, q)) {
         results.push({
           type: "manual",
@@ -376,12 +122,27 @@ function App() {
     });
 
     return results.slice(0, 10);
-  }, [globalQuery, todos, boardPosts, manuals]);
+  }, [globalQuery, manuals]);
 
+  // 検索結果クリック時
+  const handleClickSearchResult = (result) => {
+    if (!result) return;
+
+    if (result.type === "manual") {
+      // 「検索候補 → マニュアル詳細 → 閉じたら“今いた画面”に戻る」
+      setManualReturnMenu(activeMenu);
+      setOpenManualId(result.id);
+      setActiveMenu("manual");
+
+      setIsGlobalSearching(false);
+      return;
+    }
+  };
 
   const aiKnowledge = useMemo(
-    () => buildAiKnowledge(todos, boardPosts, manuals),
-    [todos, boardPosts, manuals]
+    // いまはマニュアルのみでOK（aiData 側は既存実装をそのまま使えるように空配列渡す）
+    () => buildAiKnowledge([], [], manuals),
+    [manuals]
   );
 
   const getPageTitle = () => {
@@ -389,46 +150,12 @@ function App() {
     return item ? item.label : "";
   };
 
-  // 検索結果クリック時の処理
-  const handleClickSearchResult = (result) => {
-    if (!result) return;
-
-    // TODO
-    if (result.type === "todo") {
-      setActiveMenu("todo");
-      setIsGlobalSearching(false);
-      return;
-    }
-
-    // 連絡
-    if (result.type === "board") {
-      const post = boardPosts.find((p) => p.id === result.id);
-      if (post) {
-        setSelectedBoardPost(post);
-      }
-      setIsGlobalSearching(false);
-      return;
-    }
-
-    // マニュアル
-    if (result.type === "manual") {
-      setOpenedFromDashboard(true);
-      setManualReturnMenu("home"); // 検索バーはダッシュボード共通なので home に戻す想定
-      setOpenManualId(result.id);
-      setActiveMenu("manual");
-      setIsGlobalSearching(false);
-      return;
-    }
-  };
-
-
-
   return (
     <div
       style={{
         display: "flex",
         minHeight: "100vh",
-        backgroundColor: "#F4F8FF", // 青寄りの背景
+        backgroundColor: "#F4F8FF",
         fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
@@ -452,7 +179,7 @@ function App() {
             color: "#1F5FBF",
           }}
         >
-          社内グループウェア
+          社内マニュアル
         </div>
         <div
           style={{
@@ -461,7 +188,7 @@ function App() {
             marginBottom: "16px",
           }}
         >
-          TODO / 連絡 / マニュアル / AI をひとつにまとめた社内ポータル
+          マニュアル管理 + AI検索
         </div>
 
         <nav>
@@ -488,13 +215,7 @@ function App() {
                   gap: "6px",
                 }}
               >
-                <span>
-                  {item.id === "home" && "🏠"}
-                  {item.id === "todo" && "✅"}
-                  {item.id === "board" && "📋"}
-                  {item.id === "manual" && "📁"}
-                  {item.id === "chat" && "🤖"}
-                </span>
+                <span>{item.id === "manual" ? "📁" : "🤖"}</span>
                 <span>{item.label}</span>
               </button>
             );
@@ -506,14 +227,13 @@ function App() {
       <main
         style={{
           flex: 1,
-          width: "100%",          // ★ 明示的に全幅
+          width: "100%",
           minWidth: 0,
-          padding: "16px",        // 横paddingを少し減らす
+          padding: "16px",
           boxSizing: "border-box",
-          overflowX: "hidden",    // 横スクロール防止
+          overflowX: "hidden",
         }}
       >
-
         <header
           style={{
             marginBottom: "12px",
@@ -537,8 +257,7 @@ function App() {
             {getPageTitle()}
           </h1>
 
-          {/* 全体検索（UIのみ：まずは入力できる状態にする） */}
-          {/* 全体検索（結果表示付き） */}
+          {/* 全体検索（マニュアルのみ） */}
           <div
             style={{
               display: "flex",
@@ -547,16 +266,14 @@ function App() {
               minWidth: 0,
             }}
           >
-            {/* 検索枠（この中に「🔍」「入力」「クリア」「ドロップダウン」を全部入れる） */}
             <div
               style={{
                 position: "relative",
                 width: "100%",
-                maxWidth: "520px",   // ★ 最大は520
-                minWidth: "240px",   // ★ 最小はこれくらい（好みで調整OK）
+                maxWidth: "520px",
+                minWidth: "240px",
               }}
             >
-              {/* 🔍 アイコン */}
               <span
                 style={{
                   position: "absolute",
@@ -571,13 +288,12 @@ function App() {
                 🔍
               </span>
 
-              {/* クリア（入力がある時だけ表示） */}
               {globalQuery.trim() && (
                 <button
                   type="button"
                   onClick={() => {
                     setGlobalQuery("");
-                    setIsGlobalSearching(false);   // ★ 結果も閉じる
+                    setIsGlobalSearching(false);
                   }}
                   style={{
                     position: "absolute",
@@ -601,16 +317,11 @@ function App() {
 
               <input
                 value={globalQuery}
-                onChange={(e) => {
-                  setGlobalQuery(e.target.value);
-                  // 入力中はまだ結果を出さない場合はここでは何もしない
-                }}
+                onChange={(e) => setGlobalQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setIsGlobalSearching(true);  // ★ Enter で検索結果を表示
-                  }
+                  if (e.key === "Enter") setIsGlobalSearching(true);
                 }}
-                placeholder="全体検索（TODO / 連絡 / マニュアル）"
+                placeholder="全体検索（マニュアル）"
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -618,14 +329,14 @@ function App() {
                   backgroundColor: "#FFFFFF",
                   borderRadius: "10px",
                   padding: globalQuery.trim()
-                    ? "8px 72px 8px 30px" // ★ 右にクリア分の余白
+                    ? "8px 72px 8px 30px"
                     : "8px 10px 8px 30px",
                   fontSize: "13px",
                   outline: "none",
                 }}
               />
 
-              {/* 検索結果ドロップダウン（入力がある時だけ） */}
+              {/* ドロップダウン（入力中の候補） */}
               {globalQuery.trim() && (
                 <div
                   style={{
@@ -666,24 +377,12 @@ function App() {
                             fontSize: "11px",
                             padding: "2px 6px",
                             borderRadius: "999px",
-                            backgroundColor:
-                              r.type === "todo"
-                                ? "#EAF2FF"
-                                : r.type === "board"
-                                  ? "#FFF4E5"
-                                  : "#EAF7EA",
-                            color:
-                              r.type === "todo"
-                                ? "#1F5FBF"
-                                : r.type === "board"
-                                  ? "#B45309"
-                                  : "#2F7D32",
+                            backgroundColor: "#EAF7EA",
+                            color: "#2F7D32",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {r.type === "todo" && "TODO"}
-                          {r.type === "board" && "連絡"}
-                          {r.type === "manual" && "マニュアル"}
+                          マニュアル
                         </span>
 
                         <div style={{ minWidth: 0 }}>
@@ -711,57 +410,16 @@ function App() {
               )}
             </div>
           </div>
-
-
         </header>
 
+        {/* Enter後の検索結果画面（任意） */}
         {isGlobalSearching && globalQuery.trim() && (
           <GlobalSearchResults
             query={globalQuery}
-            todos={todos}
-            boardPosts={boardPosts}
+            todos={[]}          // 使わない（互換のため空配列）
+            boardPosts={[]}     // 使わない（互換のため空配列）
             manuals={manuals}
             onClickResult={handleClickSearchResult}
-          />
-        )}
-
-
-        {/* ダッシュボード（旧homeを差し替え） */}
-        {activeMenu === "home" && (
-          <DashboardSection
-            todos={todos}
-            boardPosts={boardPosts}
-            manuals={manuals}
-            onGoTodo={() => setActiveMenu("todo")}
-            onGoBoard={() => setActiveMenu("board")}
-            onGoManual={() => setActiveMenu("manual")}
-            onOpenBoardPost={(post) => setSelectedBoardPost(post)}
-            onOpenManual={(id) => {
-              setOpenedFromDashboard(true);
-              setManualReturnMenu("home");   // ★ ダッシュボードから来たので home に戻す
-              setOpenManualId(id);
-              setActiveMenu("manual");
-            }}
-          />
-        )}
-
-        {activeMenu === "todo" && (
-          <TodoSection
-            todos={todos}
-            onToggleTodo={handleToggleTodo}
-            showCompleted={showCompletedTodos}
-            onToggleShowCompleted={handleToggleShowCompleted}
-            onAddTodo={handleAddTodo}
-          />
-        )}
-
-        {activeMenu === "board" && (
-          <BoardSection
-            posts={boardPosts}
-            onAddPost={handleAddPost}
-            onTogglePin={handleTogglePin}
-            onUpdatePost={handleUpdatePost}
-            onDeletePost={handleDeletePost}
           />
         )}
 
@@ -773,45 +431,35 @@ function App() {
             onDeleteManual={handleDeleteManual}
             openManualId={openManualId}
             onConsumedOpenManual={() => setOpenManualId(null)}
-            openedFromDashboard={openedFromDashboard}
+            openedFromDashboard={true} // 互換のため true 扱い（戻りを使う）
             onBackToDashboard={() => {
-              setOpenedFromDashboard(false);
-              setActiveMenu(manualReturnMenu);   // ★ home or chat に戻る
+              // 「詳細モーダルを閉じた後」戻り先
+              setActiveMenu(manualReturnMenu);
             }}
           />
         )}
 
         {activeMenu === "chat" && (
           <AiChatSection
-            todos={todos}
-            boardPosts={boardPosts}
+            todos={[]} // 互換のため空配列
+            boardPosts={[]} // 互換のため空配列
             manuals={manuals}
-            onOpenTodo={(id) => {
-              setActiveMenu("todo");
-            }}
-            onOpenBoard={(id) => {
-              const post = boardPosts.find((p) => p.id === id);
-              if (post) setSelectedBoardPost(post);
-              // activeMenu は "chat" のまま
-            }}
+            aiKnowledge={aiKnowledge}
+            chatHistory={chatHistory}
+            setChatHistory={setChatHistory}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            onOpenTodo={() => { }}
+            onOpenBoard={() => { }}
             onOpenManual={(id) => {
-              setOpenedFromDashboard(true);
-              setManualReturnMenu("chat");   // ★ チャットから来たので chat に戻す
+              // チャット候補 → マニュアル詳細 → 閉じたらチャットに戻る
+              setManualReturnMenu("chat");
               setOpenManualId(id);
               setActiveMenu("manual");
             }}
           />
         )}
-
-
       </main>
-
-      <BoardPostDetailModal
-        open={!!selectedBoardPost}
-        post={selectedBoardPost}
-        onClose={() => setSelectedBoardPost(null)}
-      />
-
     </div>
   );
 }
