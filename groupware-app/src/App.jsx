@@ -39,7 +39,7 @@ function App() {
 
   // マニュアル詳細モーダル用（外部から開く）
   const [openManualId, setOpenManualId] = useState(null);
-  const [manualReturnMenu, setManualReturnMenu] = useState("chat");
+  const [manualReturnMenu, setManualReturnMenu] = useState("manual");
 
   // ===== 初回ロード：manuals =====
   useEffect(() => {
@@ -431,13 +431,13 @@ function App() {
             onDeleteManual={handleDeleteManual}
             openManualId={openManualId}
             onConsumedOpenManual={() => setOpenManualId(null)}
-            openedFromDashboard={true} // 互換のため true 扱い（戻りを使う）
+            openedFromDashboard={false}
             onBackToDashboard={() => {
-              // 「詳細モーダルを閉じた後」戻り先
               setActiveMenu(manualReturnMenu);
             }}
           />
         )}
+
 
         {activeMenu === "chat" && (
           <AiChatSection
