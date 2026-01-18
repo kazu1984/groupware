@@ -104,3 +104,4 @@ export function summarizeFromManuals(manuals, query, maxBullets = 6) {
     if (bullets.length === 0) return "";
     return bullets.slice(0, maxBullets).map((b) => `・${b}`).join("\n");
 }
+

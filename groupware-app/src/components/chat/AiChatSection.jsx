@@ -1,220 +1,313 @@
 // src/components/chat/AiChatSection.jsx
-import { useEffect, useMemo, useRef } from "react";
-import { searchManuals, pickSnippet, summarizeFromManuals } from "../../ai/manualSearch";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-function AiChatSection({
-    manuals,
-    onOpenManual,
+const API_URL = "http://localhost:3001/api/ai/chat";
 
-    // App側で履歴を保持（消えない）
-    chatHistory,
-    setChatHistory,
-    chatInput,
-    setChatInput,
-}) {
-    const listRef = useRef(null);
+/**
+ * AIチャット画面
+ * props:
+ *  - manuals: マニュアル配列（今は未使用でもOK。将来「候補表示」などに使える）
+ *  - onOpenManual(id): 引用マニュアルをクリックしたときに詳細を開く（任意）
+ */
+function AiChatSection({ manuals, onOpenManual }) {
+    const [messages, setMessages] = useState([
+        {
+            role: "assistant",
+            content:
+                "こんにちは！マニュアルについて質問してください。\n例）「清掃の手順は？」「ライン停止時の初動は？」",
+        },
+    ]);
+    const [input, setInput] = useState("");
+    const [isSending, setIsSending] = useState(false);
+    const [errorText, setErrorText] = useState("");
 
-    const safeHistory = Array.isArray(chatHistory) ? chatHistory : [];
-    const safeManuals = Array.isArray(manuals) ? manuals : [];
+    const bottomRef = useRef(null);
 
+    const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+
+    // 一番下へスクロール
     const scrollToBottom = () => {
-        // requestAnimationFrame で描画後にスクロール
-        requestAnimationFrame(() => {
-            listRef.current?.scrollTo({
-                top: listRef.current.scrollHeight,
-                behavior: "smooth",
-            });
-        });
+        // ちょい遅延させるとDOM反映後に確実にスクロールできます
+        setTimeout(() => {
+            bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        }, 0);
     };
 
     useEffect(() => {
         scrollToBottom();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [safeHistory.length]);
+    }, [messages.length, isSending]);
 
-    const handleSend = () => {
-        const q = (chatInput ?? "").trim();
-        if (!q) return;
+    const handleSend = async () => {
+        const userText = input.trim();
+        if (!userText || isSending) return;
 
-        // ① ユーザー発言を履歴へ
-        const userMsg = {
-            id: `${Date.now()}-u`,
-            role: "user",
-            text: q,
-            createdAt: Date.now(),
-        };
+        setErrorText("");
+        setIsSending(true);
 
-        // ② 関連マニュアル検索（上位3件）
-        const refs = searchManuals(safeManuals, q, 3);
+        // ① ユーザー発言を先に追加
+        setMessages((prev) => [...prev, { role: "user", content: userText }]);
+        setInput("");
 
-        // ③ 回答（まずはテンプレ）
-        const summary = summarizeFromManuals(refs, q);
+        try {
+            const res = await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: userText }),
+            });
 
-        const botText =
-            refs.length === 0
-                ? "関連するマニュアルが見つかりませんでした。別のキーワードで聞くか、マニュアルのタイトル/タグに含まれそうな言葉で試してください。"
-                : summary
-                    ? `以下は関連マニュアルから抜粋した要点です。\n${summary}\n\n必要なら「参照マニュアル」を開いて全文を確認してください。`
-                    : "関連しそうなマニュアルを見つけました。下の「参照マニュアル」から内容を確認してください。";
+            if (!res.ok) {
+                const t = await res.text();
+                throw new Error(t || "API Error");
+            }
 
-        const botMsg = {
-            id: `${Date.now()}-a`,
-            role: "assistant",
-            text: botText,
-            createdAt: Date.now(),
-            references: refs.map((m) => ({
-                id: m.id,
-                title: m.title,
-                categoryPath: Array.isArray(m.categoryPath) ? m.categoryPath : [],
-                snippet: pickSnippet(m, q),
-            })),
-            query: q,
-        };
+            const data = await res.json();
+            const answer = (data?.answer ?? "").toString();
+            const citations = Array.isArray(data?.citations) ? data.citations : [];
 
-        setChatHistory((prev) => [...(Array.isArray(prev) ? prev : []), userMsg, botMsg]);
-        setChatInput("");
+            // ② AI回答を追加
+            setMessages((prev) => [
+                ...prev,
+                {
+                    role: "assistant",
+                    content: answer || "（回答が空でした）",
+                    citations,
+                },
+            ]);
+        } catch (e) {
+            console.error(e);
+            setErrorText("AIの応答に失敗しました。APIサーバーが起動しているか確認してください。");
+            setMessages((prev) => [
+                ...prev,
+                {
+                    role: "assistant",
+                    content:
+                        "すみません、AIの応答に失敗しました。\n（APIサーバー起動・URL・CORS・OpenAIキー設定を確認してください）",
+                },
+            ]);
+        } finally {
+            setIsSending(false);
+        }
     };
 
     const handleKeyDown = (e) => {
+        // Enterで送信、Shift+Enterで改行
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleSend();
         }
     };
 
+    const bubbleStyle = (role) => {
+        const isUser = role === "user";
+        return {
+            alignSelf: isUser ? "flex-end" : "flex-start",
+            maxWidth: "min(820px, 92%)",
+            backgroundColor: isUser ? "#EAF2FF" : "#FFFFFF",
+            border: isUser ? "1px solid #D7E3F7" : "1px solid #E5EAF1",
+            color: "#111827",
+            borderRadius: "12px",
+            padding: "10px 12px",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+            whiteSpace: "pre-wrap",
+            lineHeight: 1.65,
+            fontSize: "13px",
+        };
+    };
+
     return (
         <div
             style={{
                 width: "100%",
-                backgroundColor: "#ffffff",
+                boxSizing: "border-box",
+                backgroundColor: "#FFFFFF",
                 borderRadius: "12px",
-                padding: "14px",
                 border: "1px solid #E5EAF1",
                 boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                boxSizing: "border-box",
                 display: "flex",
                 flexDirection: "column",
-                gap: "10px",
-                minHeight: "70vh",
+                height: "calc(100vh - 140px)", // ヘッダー分をざっくり引く（必要なら調整OK）
+                minHeight: "520px",
             }}
         >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ fontSize: "14px", fontWeight: "bold", color: "#1F5FBF" }}>
-                    AIチャット
+            {/* ヘッダー */}
+            <div
+                style={{
+                    padding: "12px 14px",
+                    borderBottom: "1px solid #E5EAF1",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                }}
+            >
+                <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "14px", fontWeight: "bold", color: "#1F5FBF" }}>
+                        AIチャット
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>
+                        マニュアルを根拠に回答します（必要なら引用も表示）
+                    </div>
                 </div>
-                <div style={{ fontSize: "12px", color: "#6B7280" }}>
-                    マニュアルの内容から関連候補を提示します（根拠付き）
-                </div>
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        setMessages([
+                            {
+                                role: "assistant",
+                                content:
+                                    "こんにちは！マニュアルについて質問してください。\n例）「清掃の手順は？」「ライン停止時の初動は？」",
+                            },
+                        ]);
+                        setInput("");
+                        setErrorText("");
+                    }}
+                    style={{
+                        border: "1px solid #D7E3F7",
+                        backgroundColor: "#F5F9FF",
+                        color: "#1F5FBF",
+                        borderRadius: "10px",
+                        padding: "8px 10px",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        whiteSpace: "nowrap",
+                    }}
+                >
+                    履歴クリア
+                </button>
             </div>
 
-            {/* 履歴 */}
+            {/* 本文（履歴） */}
             <div
-                ref={listRef}
                 style={{
                     flex: 1,
                     overflowY: "auto",
-                    border: "1px solid #EEF2FF",
-                    borderRadius: "10px",
-                    padding: "10px",
-                    backgroundColor: "#F8FBFF",
+                    padding: "12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    backgroundColor: "#F4F8FF",
                 }}
             >
-                {safeHistory.length === 0 ? (
-                    <div style={{ fontSize: "13px", color: "#6B7280" }}>
-                        例：「清掃の手順を教えて」「ライン停止時の対応は？」など
-                    </div>
-                ) : (
-                    safeHistory.map((m) => (
-                        <div key={m.id} style={{ marginBottom: "10px" }}>
-                            <div
-                                style={{
-                                    display: "inline-block",
-                                    maxWidth: "100%",
-                                    padding: "8px 10px",
-                                    borderRadius: "10px",
-                                    backgroundColor: m.role === "user" ? "#EAF2FF" : "#FFFFFF",
-                                    border: "1px solid #D7E3F7",
-                                    color: "#111827",
-                                    fontSize: "13px",
-                                    whiteSpace: "pre-wrap",
-                                }}
-                            >
-                                {m.text}
-                            </div>
-
-                            {/* 参照マニュアル（assistant のみ） */}
-                            {m.role === "assistant" && Array.isArray(m.references) && m.references.length > 0 && (
-                                <div style={{ marginTop: "8px" }}>
-                                    <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>
-                                        参照マニュアル（根拠）
-                                    </div>
-
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                        {m.references.map((r) => (
-                                            <button
-                                                key={r.id}
-                                                type="button"
-                                                onClick={() => onOpenManual?.(r.id)}
-                                                style={{
-                                                    textAlign: "left",
-                                                    border: "1px solid #D7E3F7",
-                                                    backgroundColor: "#FFFFFF",
-                                                    borderRadius: "10px",
-                                                    padding: "8px 10px",
-                                                    cursor: "pointer",
-                                                }}
-                                            >
-                                                <div style={{ fontSize: "13px", color: "#1F5FBF", fontWeight: "bold" }}>
-                                                    📘 {r.title}
-                                                </div>
-                                                <div style={{ fontSize: "11px", color: "#6B7280", marginTop: "2px" }}>
-                                                    {r.categoryPath.length ? `カテゴリ：${r.categoryPath.join(" / ")}` : "カテゴリ：未分類"}
-                                                </div>
-                                                {r.snippet && (
-                                                    <div style={{ fontSize: "12px", color: "#111827", marginTop: "6px" }}>
-                                                        {r.snippet}
-                                                    </div>
-                                                )}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                {messages.map((m, idx) => (
+                    <div key={idx} style={bubbleStyle(m.role)}>
+                        {/* ラベル */}
+                        <div
+                            style={{
+                                fontSize: "11px",
+                                color: "#6B7280",
+                                marginBottom: "6px",
+                            }}
+                        >
+                            {m.role === "user" ? "あなた" : "AI"}
                         </div>
-                    ))
+
+                        {/* 本文（箇条書きもpre-wrapで見やすい） */}
+                        <div>{m.content}</div>
+
+                        {/* 引用（マニュアル参照） */}
+                        {Array.isArray(m.citations) && m.citations.length > 0 && (
+                            <div style={{ marginTop: "10px" }}>
+                                <div style={{ fontSize: "11px", color: "#6B7280", marginBottom: "6px" }}>
+                                    参照したマニュアル
+                                </div>
+
+                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                                    {m.citations.map((c) => (
+                                        <button
+                                            key={`${c.id}-${c.ref}`}
+                                            type="button"
+                                            onClick={() => {
+                                                if (onOpenManual && c.id != null) onOpenManual(c.id);
+                                            }}
+                                            style={{
+                                                textAlign: "left",
+                                                border: "1px solid #D7E3F7",
+                                                backgroundColor: "#FFFFFF",
+                                                borderRadius: "10px",
+                                                padding: "8px 10px",
+                                                cursor: onOpenManual ? "pointer" : "default",
+                                                fontSize: "13px",
+                                                color: "#1F5FBF",
+                                            }}
+                                            title={onOpenManual ? "クリックで詳細を開く" : ""}
+                                        >
+                                            {c.ref ? `${c.ref} ` : ""}📘 {c.title}（id: {c.id}）
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ))}
+
+                {isSending && (
+                    <div style={bubbleStyle("assistant")}>
+                        <div style={{ fontSize: "11px", color: "#6B7280", marginBottom: "6px" }}>AI</div>
+                        <div style={{ color: "#111827" }}>考えています…</div>
+                    </div>
                 )}
+
+                <div ref={bottomRef} />
             </div>
 
-            {/* 入力 */}
-            <div style={{ display: "flex", gap: "8px" }}>
+            {/* エラー表示 */}
+            {errorText && (
+                <div
+                    style={{
+                        padding: "10px 12px",
+                        backgroundColor: "#FFF1F2",
+                        borderTop: "1px solid #FECACA",
+                        color: "#991B1B",
+                        fontSize: "12px",
+                    }}
+                >
+                    {errorText}
+                </div>
+            )}
+
+            {/* 入力欄 */}
+            <div
+                style={{
+                    padding: "12px",
+                    borderTop: "1px solid #E5EAF1",
+                    backgroundColor: "#FFFFFF",
+                    display: "flex",
+                    gap: "10px",
+                    alignItems: "flex-end",
+                }}
+            >
                 <textarea
-                    value={chatInput ?? ""}
-                    onChange={(e) => setChatInput?.(e.target.value)}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="質問を入力（Enterで送信 / Shift+Enterで改行）"
+                    rows={2}
                     style={{
                         flex: 1,
-                        minHeight: "44px",
-                        maxHeight: "120px",
-                        resize: "vertical",
+                        resize: "none",
                         border: "1px solid #D7E3F7",
                         borderRadius: "10px",
-                        padding: "8px 10px",
+                        padding: "10px 10px",
                         fontSize: "13px",
                         outline: "none",
+                        backgroundColor: "#FFFFFF",
                         boxSizing: "border-box",
                     }}
                 />
+
                 <button
                     type="button"
                     onClick={handleSend}
+                    disabled={!canSend}
                     style={{
-                        border: "1px solid #1F5FBF",
-                        backgroundColor: "#1F5FBF",
-                        color: "#fff",
+                        border: "1px solid #D7E3F7",
+                        backgroundColor: canSend ? "#1F5FBF" : "#A9C3EA",
+                        color: "#FFFFFF",
                         borderRadius: "10px",
                         padding: "10px 14px",
-                        cursor: "pointer",
+                        cursor: canSend ? "pointer" : "not-allowed",
                         fontSize: "13px",
                         whiteSpace: "nowrap",
                     }}
